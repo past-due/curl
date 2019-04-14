@@ -954,6 +954,21 @@ static void prune_dead_connections(struct Curl_easy *data)
   }
 }
 
+/* A connection has to have been idle for a shorter time than this to be
+   subject for reuse. The success rate is just too low after this. */
+#define MAXAGE_FOR_REUSE 120000 /* milliseconds */
+
+static bool conn_maxage(struct Curl_easy *data,
+                        struct connectdata *conn,
+                        struct curltime now)
+{
+  if(!conn->data &&
+     (Curl_timediff(now, conn->lastused) > MAXAGE_FOR_REUSE)) {
+    infof(data, "Too old connection, disconnect it\n");
+    return TRUE;
+  }
+  return FALSE;
+}
 /*
  * Given one filled in connection struct (named needle), this function should
  * detect if there already is one that has all the significant details
@@ -977,6 +992,7 @@ ConnectionExists(struct Curl_easy *data,
   bool foundPendingCandidate = FALSE;
   bool canmultiplex = IsMultiplexingPossible(data, needle);
   struct connectbundle *bundle;
+  struct curltime now = Curl_now();
 
 #ifdef USE_NTLM
   bool wantNTLMhttp = ((data->state.authhost.want &
@@ -1040,7 +1056,7 @@ ConnectionExists(struct Curl_easy *data,
         /* connect-only connections will not be reused */
         continue;
 
-      if(extract_if_dead(check, data)) {
+      if(conn_maxage(data, check, now) || extract_if_dead(check, data)) {
         /* disconnect it */
         (void)Curl_disconnect(data, check, /* dead_connection */TRUE);
         continue;
