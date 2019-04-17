@@ -540,6 +540,7 @@ static CURLcode operate_do(struct GlobalConfig *global,
   struct per_transfer *per;
   bool retry;
   CURL *curltls = curl_easy_init();
+  CURLSH *share = curl_share_init();
 
   /*
   ** Beyond this point no return'ing from this function allowed.
@@ -553,6 +554,13 @@ static CURLcode operate_do(struct GlobalConfig *global,
     result = CURLE_FAILED_INIT;
     goto quit_curl;
   }
+
+  /* sharing is caring */
+  curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_COOKIE);
+  curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
+  curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
+  curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_CONNECT);
+  curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_PSL);
 
   /* On WIN32 we can't set the path to curl-ca-bundle.crt
    * at compile time. So we look here for the file in two ways:
@@ -1151,6 +1159,10 @@ static CURLcode operate_do(struct GlobalConfig *global,
         /* explicitly passed to stdout means okaying binary gunk */
         config->terminal_binary_ok =
           (per->outfile && !strcmp(per->outfile, "-"));
+
+        /* avoid having this setopt added to the --libcurl source
+           output */
+        curl_easy_setopt(curl, CURLOPT_SHARE, share);
 
         if(!config->tcp_nodelay)
           my_setopt(curl, CURLOPT_TCP_NODELAY, 0L);
@@ -2020,6 +2032,7 @@ static CURLcode operate_do(struct GlobalConfig *global,
   clean_metalink(config);
 
   curl_easy_cleanup(curltls);
+  curl_share_cleanup(share);
 
   return result;
 }
