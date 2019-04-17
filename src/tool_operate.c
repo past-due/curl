@@ -800,7 +800,6 @@ static CURLcode operate_do(struct GlobalConfig *global,
         struct OutStruct *outs;
         struct InStruct *input;
         curl_off_t uploadfilesize;
-        char *this_url = NULL;
         struct OutStruct *heads;
         CURL *curl = curl_easy_init();
 
@@ -809,6 +808,7 @@ static CURLcode operate_do(struct GlobalConfig *global,
           result = CURLE_OUT_OF_MEMORY;
           goto show_error;
         }
+        per->curl = curl;
 
         /* default headers output stream is stdout */
         heads = &per->heads;
@@ -861,28 +861,28 @@ static CURLcode operate_do(struct GlobalConfig *global,
             result = CURLE_OUT_OF_MEMORY;
             goto show_error;
           }
-          this_url = strdup(mlres->url);
-          if(!this_url) {
+          per->this_url = strdup(mlres->url);
+          if(!per->this_url) {
             result = CURLE_OUT_OF_MEMORY;
             goto show_error;
           }
         }
         else {
           if(urls) {
-            result = glob_next_url(&this_url, urls);
+            result = glob_next_url(&per->this_url, urls);
             if(result)
               goto show_error;
           }
           else if(!li) {
-            this_url = strdup(urlnode->url);
-            if(!this_url) {
+            per->this_url = strdup(urlnode->url);
+            if(!per->this_url) {
               result = CURLE_OUT_OF_MEMORY;
               goto show_error;
             }
           }
           else
-            this_url = NULL;
-          if(!this_url)
+            per->this_url = NULL;
+          if(!per->this_url)
             break;
 
           if(outfiles) {
@@ -905,7 +905,7 @@ static CURLcode operate_do(struct GlobalConfig *global,
 
           if(!per->outfile) {
             /* extract the file name from the URL */
-            result = get_url_file_name(&per->outfile, this_url);
+            result = get_url_file_name(&per->outfile, per->this_url);
             if(result)
               goto show_error;
             if(!*per->outfile && !config->content_disposition) {
@@ -990,8 +990,8 @@ static CURLcode operate_do(struct GlobalConfig *global,
            */
           struct_stat fileinfo;
 
-          this_url = add_file_name_to_url(this_url, uploadfile);
-          if(!this_url) {
+          per->this_url = add_file_name_to_url(per->this_url, uploadfile);
+          if(!per->this_url) {
             result = CURLE_OUT_OF_MEMORY;
             goto show_error;
           }
@@ -1086,7 +1086,7 @@ static CURLcode operate_do(struct GlobalConfig *global,
         if(uploadfile && config->resume_from_current)
           config->resume_from = -1; /* -1 will then force get-it-yourself */
 
-        if(output_expected(this_url, uploadfile) && outs->stream &&
+        if(output_expected(per->this_url, uploadfile) && outs->stream &&
            isatty(fileno(outs->stream)))
           /* we send the output to a tty, therefore we switch off the progress
              meter */
@@ -1101,20 +1101,20 @@ static CURLcode operate_do(struct GlobalConfig *global,
         if(urlnum > 1 && !global->mute) {
           per->separator_err =
             aprintf("\n[%lu/%lu]: %s --> %s",
-                    li + 1, urlnum, this_url, per->outfile ? per->outfile :
-                    "<stdout>");
+                    li + 1, urlnum, per->this_url,
+                    per->outfile ? per->outfile : "<stdout>");
           if(separator)
-            per->separator = aprintf("%s%s", CURLseparator, this_url);
+            per->separator = aprintf("%s%s", CURLseparator, per->this_url);
         }
         if(httpgetfields) {
           char *urlbuffer;
           /* Find out whether the url contains a file name */
-          const char *pc = strstr(this_url, "://");
+          const char *pc = strstr(per->this_url, "://");
           char sep = '?';
           if(pc)
             pc += 3;
           else
-            pc = this_url;
+            pc = per->this_url;
 
           pc = strrchr(pc, '/'); /* check for a slash */
 
@@ -1130,20 +1130,20 @@ static CURLcode operate_do(struct GlobalConfig *global,
            * Then append ? followed by the get fields to the url.
            */
           if(pc)
-            urlbuffer = aprintf("%s%c%s", this_url, sep, httpgetfields);
+            urlbuffer = aprintf("%s%c%s", per->this_url, sep, httpgetfields);
           else
             /* Append  / before the ? to create a well-formed url
                if the url contains a hostname only
             */
-            urlbuffer = aprintf("%s/?%s", this_url, httpgetfields);
+            urlbuffer = aprintf("%s/?%s", per->this_url, httpgetfields);
 
           if(!urlbuffer) {
             result = CURLE_OUT_OF_MEMORY;
             goto show_error;
           }
 
-          Curl_safefree(this_url); /* free previous URL */
-          this_url = urlbuffer; /* use our new URL instead! */
+          Curl_safefree(per->this_url); /* free previous URL */
+          per->this_url = urlbuffer; /* use our new URL instead! */
         }
 
         if(!global->errors)
@@ -1209,10 +1209,9 @@ static CURLcode operate_do(struct GlobalConfig *global,
         else
           my_setopt(curl, CURLOPT_BUFFERSIZE, (long)BUFFER_SIZE);
 
-        /* size of uploaded file: */
         if(uploadfilesize != -1)
           my_setopt(curl, CURLOPT_INFILESIZE_LARGE, uploadfilesize);
-        my_setopt_str(curl, CURLOPT_URL, this_url);     /* what to fetch */
+        my_setopt_str(curl, CURLOPT_URL, per->this_url);
         my_setopt(curl, CURLOPT_NOPROGRESS, global->noprogress?1L:0L);
         if(config->no_body)
           my_setopt(curl, CURLOPT_NOBODY, 1L);
@@ -1914,23 +1913,21 @@ static CURLcode operate_do(struct GlobalConfig *global,
               goto show_error;
             }
             fprintf(config->global->errors,
-                    "Metalink: parsing (%s) metalink/XML...\n", this_url);
+                    "Metalink: parsing (%s) metalink/XML...\n", per->this_url);
           }
           else if(metalink)
             fprintf(config->global->errors,
                     "Metalink: fetching (%s) from (%s)...\n",
-                    mlfile->filename, this_url);
+                    mlfile->filename, per->this_url);
 #endif /* USE_METALINK */
 
           per->metalink = metalink;
-          per->this_url = this_url;
           /* initialize retry vars for loop below */
           per->retry_sleep_default = (config->retry_delay) ?
             config->retry_delay*1000L : RETRY_SLEEP_DEFAULT; /* ms */
           per->retry_numretries = config->req_retry;
           per->retry_sleep = per->retry_sleep_default; /* ms */
           per->retrystart = tvnow();
-          per->curl = curl;
 
           /* In all ordinary cases, just break out of loop here */
           break; /* curl_easy_perform loop */
@@ -1988,11 +1985,10 @@ static CURLcode operate_do(struct GlobalConfig *global,
   } /* for-loop through all URLs */
 
   /* Time to actually do the transfers, one by one or all at once! */
-  {
-    struct per_transfer *pernext;
+  if(!result) {
     CURLcode returncode = CURLE_OK;
     for(per = transfers; per;) {
-      pernext = per->next;
+      struct per_transfer *pernext = per->next;
 
       result = pre_transfer(global, per);
       if(result)
@@ -2009,11 +2005,21 @@ static CURLcode operate_do(struct GlobalConfig *global,
 
       result = post_transfer(global, config, per, result, &retry);
       free(per);
-      per = pernext;
+      transfers = per = pernext;
       if(result || returncode)
         break;
     }
     result = returncode;
+  }
+  else {
+    /* no transfers, just cleanups */
+    for(per = transfers; per;) {
+      struct per_transfer *pernext = per->next;
+      (void)post_transfer(global, config, per, result, &retry);
+      free(per);
+      per = pernext;
+    }
+    transfers = NULL;
   }
 
   quit_curl:
