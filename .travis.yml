@@ -554,11 +554,11 @@ script:
              scan-build --status-bugs make && scan-build --status-bugs make examples
         fi
 
-# whitelist branches to avoid testing feature branches twice (as branch and as pull request)
-branches:
-    only:
-        - master
-        - /\/ci$/
+## whitelist branches to avoid testing feature branches twice (as branch and as pull request)
+#branches:
+#    only:
+#        - master
+#        - /\/ci$/
 
 notifications:
   email: false
