@@ -498,6 +498,7 @@ script:
              else
                 cmake -H. -Bbuild -DOPENSSL_ROOT_DIR=/usr/local/opt/openssl -DCURL_DISABLE_LDAP=ON -DCURL_DISABLE_LDAPS=ON && cmake --build build
              fi
+             cd build && ctest
         fi
     - |
         set -eo pipefail
