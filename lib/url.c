@@ -541,6 +541,7 @@ CURLcode Curl_init_userdefined(struct Curl_easy *data)
   set->fnmatch = ZERO_NULL;
   set->upkeep_interval_ms = CURL_UPKEEP_INTERVAL_DEFAULT;
   set->maxconnects = DEFAULT_CONNCACHE_SIZE; /* for easy handles */
+  set->maxage_conn = 120;
   set->http09_allowed = TRUE;
   set->httpversion =
 #ifdef USE_NGHTTP2
@@ -954,18 +955,22 @@ static void prune_dead_connections(struct Curl_easy *data)
   }
 }
 
-/* A connection has to have been idle for a shorter time than this to be
-   subject for reuse. The success rate is just too low after this. */
-#define MAXAGE_FOR_REUSE 120000 /* milliseconds */
+/* A connection has to have been idle for a shorter time than 'maxage_conn' to
+   be subject for reuse. The success rate is just too low after this. */
 
 static bool conn_maxage(struct Curl_easy *data,
                         struct connectdata *conn,
                         struct curltime now)
 {
-  if(!conn->data &&
-     (Curl_timediff(now, conn->lastused) > MAXAGE_FOR_REUSE)) {
-    infof(data, "Too old connection, disconnect it\n");
-    return TRUE;
+  if(!conn->data) {
+    timediff_t idletime = Curl_timediff(now, conn->lastused);
+    idletime /= 1000; /* integer seconds is fine */
+
+    if(idletime/1000 > data->set.maxage_conn) {
+      infof(data, "Too old connection (%ld seconds), disconnect it\n",
+            idletime);
+      return TRUE;
+    }
   }
   return FALSE;
 }
